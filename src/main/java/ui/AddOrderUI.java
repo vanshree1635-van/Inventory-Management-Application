@@ -62,6 +62,7 @@ public class AddOrderUI {
         supplierLbl.setFont(labelFont);
 
         TextField orderNo = new TextField();
+        orderNo.setEditable(false);   
         orderNo.setPrefSize(320, 42);
         orderNo.setStyle(fieldStyle);
 
@@ -152,9 +153,7 @@ public class AddOrderUI {
                     "root",
                     "van#123")) {
 
-                if (orderNo.getText().trim().isEmpty())
-                    throw new Exception("Enter Order No");
-
+               
                 if (productName.getValue() == null || productName.getValue().trim().isEmpty())
                     throw new Exception("Select a Product");
 
@@ -187,7 +186,9 @@ public class AddOrderUI {
                 PreparedStatement checkPaid = con.prepareStatement(
                     "SELECT order_status FROM order_table " +
                     "WHERE order_no=? AND record_status='ACTIVE' LIMIT 1");
-                checkPaid.setString(1, orderNo.getText().trim());
+                String generatedOrderNo = generateNextOrderNo(con);
+
+                checkPaid.setString(1, generatedOrderNo);
                 ResultSet rsPaid = checkPaid.executeQuery();
                 if (rsPaid.next()) {
                     String existingStatus = rsPaid.getString("order_status");
@@ -204,10 +205,17 @@ public class AddOrderUI {
                         " order_status, record_status) " +
                         "VALUES (?,?,?,?,?,'IN_PROCESS','ACTIVE')");
 
-                insertOrder.setString(1, orderNo.getText().trim());
+                
+                insertOrder.setString(1, generatedOrderNo);
                 insertOrder.setString(2, pid);
                 insertOrder.setInt(3, sid);
-                insertOrder.setDate(4, java.sql.Date.valueOf(orderDate.getValue()));
+               java.time.LocalDate localDate = orderDate.getValue();
+
+                if (localDate == null) {
+                    throw new Exception("Select Order Date properly");
+                }
+
+                insertOrder.setDate(4, java.sql.Date.valueOf(localDate));
                 insertOrder.setInt(5, Integer.parseInt(qtyOrdered.getText().trim()));
                 insertOrder.executeUpdate();
 
@@ -215,7 +223,7 @@ public class AddOrderUI {
                         "Order added successfully").show();
 
                 // Reset form
-                orderNo.clear();
+                orderNo.setText(generateNextOrderNo(con));
                 productName.setValue(null);
                 supplierName.setValue(null);
                 qtyOrdered.clear();
@@ -244,6 +252,17 @@ public class AddOrderUI {
         """);
 
         root.getChildren().add(card);
+        
+                try (Connection con = DriverManager.getConnection(
+                "jdbc:mysql://localhost:3306/inventory_system",
+                "root",
+                "van#123")) {
+
+            orderNo.setText(generateNextOrderNo(con));
+
+        } catch (Exception e) {
+            new Alert(Alert.AlertType.ERROR, e.getMessage()).show();
+        }
         scene = new Scene(root, 1024, 768);
     }
 
@@ -285,5 +304,29 @@ public class AddOrderUI {
         combo.setOnMouseExited(e ->
                 combo.setStyle(fieldStyle)
         );
+    }
+    private String generateNextOrderNo(Connection con) throws Exception {
+
+        String query = "SELECT order_no, record_status " +
+                       "FROM order_table " +
+                       "ORDER BY entry_id DESC LIMIT 1";
+
+        PreparedStatement ps = con.prepareStatement(query);
+        ResultSet rs = ps.executeQuery();
+
+        if (rs.next()) {
+            String lastOrderNo = rs.getString("order_no");
+            String status = rs.getString("record_status");
+
+            int num = Integer.parseInt(lastOrderNo.substring(2));
+
+            if ("INACTIVE".equalsIgnoreCase(status)) {
+                return String.format("OR%04d", num);   // reuse
+            } else {
+                return String.format("OR%04d", num + 1); // increment
+            }
+        } else {
+            return "OR0001";
+        }
     }
 }
