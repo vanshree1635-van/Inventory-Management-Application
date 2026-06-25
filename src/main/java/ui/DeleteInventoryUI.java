@@ -69,7 +69,7 @@ public class DeleteInventoryUI {
 
         String DB_URL = "jdbc:mysql://localhost:3306/inventory_system";
         String DB_USER = "root";
-        String DB_PASS = "Somya@2005";
+        String DB_PASS = "van#123";
 
         // ================= PRODUCT TYPES =================
         try (Connection con = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
