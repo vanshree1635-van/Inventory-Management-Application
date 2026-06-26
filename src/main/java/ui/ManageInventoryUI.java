@@ -9,12 +9,20 @@ import javafx.scene.control.*;
 import javafx.scene.control.cell.TextFieldTableCell;
 import javafx.scene.layout.*;
 import javafx.scene.text.*;
+import javafx.collections.ObservableList;
+import javafx.collections.FXCollections;
+import javafx.collections.transformation.FilteredList;
 
 import java.sql.*;
 
 public class ManageInventoryUI {
 
     private Scene scene;
+
+    private FilteredList<PRow> filteredProducts;
+    private FilteredList<SRow> filteredSuppliers;
+    private FilteredList<ORow> filteredOrders;
+    private FilteredList<BRow> filteredBills;
 
     // ===================== STYLE CONSTANTS =====================
     private static final String BG_COLOR   = "#E2C49F";
@@ -41,6 +49,17 @@ public class ManageInventoryUI {
             "-fx-background-radius:8; -fx-padding:10 28 10 28;";
     private static final String TAB_STYLE =
             "-fx-font-size:15px; -fx-font-weight:bold;";
+
+    // ===================== SEARCH BAR STYLE =====================
+    private static final String SEARCH_STYLE = """
+            -fx-background-radius: 10;
+            -fx-border-radius: 10;
+            -fx-border-color: #C49A6C;
+            -fx-border-width: 1.5;
+            -fx-background-color: #FFF6E9;
+            -fx-font-size: 14px;
+            -fx-prompt-text-fill: #9E7B55;
+            """;
 
     // ===================== CONSTRUCTOR =====================
     public ManageInventoryUI(Inventory app) {
@@ -127,6 +146,19 @@ public class ManageInventoryUI {
     }
 
     // =====================================================================
+    //  SEARCH BAR HELPER — reusable styled search field
+    // =====================================================================
+
+    private TextField buildSearchField(String prompt) {
+        TextField tf = new TextField();
+        tf.setPromptText(prompt);
+        tf.setStyle(SEARCH_STYLE);
+        tf.setPrefHeight(38);
+        tf.setMaxWidth(340);
+        return tf;
+    }
+
+    // =====================================================================
     //  PRODUCT TAB
     //  Shows: Name, Description, Min Qty, Stock, Type   (pid hidden)
     //  Editable: Name, Description, Min Qty
@@ -177,9 +209,36 @@ public class ManageInventoryUI {
         minCol.setOnEditCommit(e -> { e.getRowValue().minQty.set(e.getNewValue()); updateProduct(e.getRowValue()); });
 
         table.getColumns().addAll(nameCol, descCol, minCol, qtyCol, ptypeCol);
-        loadProducts(table);
 
-        VBox box = new VBox(table);
+        ObservableList<PRow> masterData = FXCollections.observableArrayList();
+        filteredProducts = new FilteredList<>(masterData, p -> true);
+        table.setItems(filteredProducts);
+        loadProducts(masterData);
+
+        // ── Search bar wired to filteredProducts ──
+        TextField searchField = buildSearchField("🔍  Search by name, description or type…");
+        searchField.textProperty().addListener((obs, oldVal, newVal) -> {
+            String lower = newVal == null ? "" : newVal.toLowerCase().trim();
+            filteredProducts.setPredicate(row -> {
+                if (lower.isEmpty()) return true;
+                return row.name.get().toLowerCase().contains(lower)
+                    || row.desc.get().toLowerCase().contains(lower)
+                    || row.ptype.get().toLowerCase().contains(lower);
+            });
+        });
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Button resetBtn = new Button("✖");
+        resetBtn.setStyle("-fx-background-color:#c0392b; -fx-text-fill:white; -fx-font-weight:bold;");
+        resetBtn.setOnAction(e -> searchField.clear());
+
+        HBox searchBar = new HBox(10, spacer, searchField, resetBtn);
+        searchBar.setAlignment(Pos.CENTER_RIGHT);
+        searchBar.setPadding(new Insets(8, 0, 8, 0));
+
+        VBox box = new VBox(searchBar, table);
         VBox.setVgrow(table, Priority.ALWAYS);
         box.setUserData(table);
 
@@ -189,15 +248,15 @@ public class ManageInventoryUI {
         return sp;
     }
 
-    private void loadProducts(TableView<PRow> table) {
-        table.getItems().clear();
+    private void loadProducts(ObservableList<PRow> list) {
+        list.clear();
         String sql = "SELECT pid, product_name, qty_in_stock, description, " +
                      "min_qty_required, ptype_id FROM product";
         try (Connection con = DBConnection.getConnection();
              Statement st  = con.createStatement();
              ResultSet rs  = st.executeQuery(sql)) {
             while (rs.next()) {
-                table.getItems().add(new PRow(
+                list.add(new PRow(
                         rs.getString("pid"),
                         rs.getString("product_name"),
                         rs.getInt("qty_in_stock"),
@@ -230,7 +289,10 @@ public class ManageInventoryUI {
         dlg.setHeaderText("Enter product details");
         GridPane g = formGrid();
 
-        TextField pidF  = field(); TextField nameF = field();
+        TextField pidF  = field();
+        pidF.setText(generateNextProductId());
+        pidF.setEditable(false);
+        TextField nameF = field();
         TextField qtyF  = field(); TextField descF = field();
         TextField minF  = field();
         ComboBox<String> ptypeBox = new ComboBox<>();
@@ -261,7 +323,9 @@ public class ManageInventoryUI {
                 ps.setInt(5,    Integer.parseInt(minF.getText().trim()));
                 ps.setString(6, ptypeBox.getValue());
                 ps.executeUpdate();
-                loadProducts(table);
+                ObservableList<PRow> list = FXCollections.observableArrayList();
+                loadProducts(list);
+                table.setItems(list);
             } catch (Exception e) { showError(e.getMessage()); }
         });
     }
@@ -316,9 +380,38 @@ public class ManageInventoryUI {
         addrCol.setOnEditCommit(e -> { e.getRowValue().address.set(e.getNewValue()); updateSupplier(e.getRowValue()); });
 
         table.getColumns().addAll(nameCol, emailCol, contactCol, addrCol, ptypeCol);
-        loadSuppliers(table);
 
-        VBox box = new VBox(table);
+        ObservableList<SRow> masterData = FXCollections.observableArrayList();
+        filteredSuppliers = new FilteredList<>(masterData, p -> true);
+        table.setItems(filteredSuppliers);
+        loadSuppliers(masterData);
+
+        // ── Search bar wired to filteredSuppliers ──
+        TextField searchField = buildSearchField("🔍  Search by name, email, contact or address…");
+        searchField.textProperty().addListener((obs, oldVal, newVal) -> {
+            String lower = newVal == null ? "" : newVal.toLowerCase().trim();
+            filteredSuppliers.setPredicate(row -> {
+                if (lower.isEmpty()) return true;
+                return row.name.get().toLowerCase().contains(lower)
+                    || row.email.get().toLowerCase().contains(lower)
+                    || row.contact.get().toLowerCase().contains(lower)
+                    || row.address.get().toLowerCase().contains(lower)
+                    || row.ptype.get().toLowerCase().contains(lower);
+            });
+        });
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Button resetBtn = new Button("✖");
+        resetBtn.setStyle("-fx-background-color:#c0392b; -fx-text-fill:white; -fx-font-weight:bold;");
+        resetBtn.setOnAction(e -> searchField.clear());
+
+        HBox searchBar = new HBox(10, spacer, searchField, resetBtn);
+        searchBar.setAlignment(Pos.CENTER_RIGHT);
+        searchBar.setPadding(new Insets(8, 0, 8, 0));
+
+        VBox box = new VBox(searchBar, table);
         VBox.setVgrow(table, Priority.ALWAYS);
         box.setUserData(table);
 
@@ -328,14 +421,14 @@ public class ManageInventoryUI {
         return sp;
     }
 
-    private void loadSuppliers(TableView<SRow> table) {
-        table.getItems().clear();
+    private void loadSuppliers(ObservableList<SRow> list) {
+        list.clear();
         String sql = "SELECT sid, name, email, contact_no, address, ptype_id FROM supplier";
         try (Connection con = DBConnection.getConnection();
              Statement st  = con.createStatement();
              ResultSet rs  = st.executeQuery(sql)) {
             while (rs.next()) {
-                table.getItems().add(new SRow(
+                list.add(new SRow(
                         rs.getInt("sid"),
                         rs.getString("name"),
                         rs.getString("email") == null ? "" : rs.getString("email"),
@@ -345,6 +438,14 @@ public class ManageInventoryUI {
                 ));
             }
         } catch (Exception e) { showError(e.getMessage()); }
+    }
+
+    // ── loadSuppliers overload that accepts a TableView (used by showAddSupplierForm) ──
+    private void loadSuppliers(TableView<SRow> table) {
+        ObservableList<SRow> masterData = FXCollections.observableArrayList();
+        filteredSuppliers = new FilteredList<>(masterData, p -> true);
+        loadSuppliers(masterData);
+        table.setItems(filteredSuppliers);
     }
 
     private void updateSupplier(SRow row) {
@@ -392,7 +493,7 @@ public class ManageInventoryUI {
                 ps.setString(3, contactF.getText().trim()); ps.setString(4, addrF.getText().trim());
                 ps.setString(5, ptypeBox.getValue());
                 ps.executeUpdate();
-                loadSuppliers(table);
+                loadSuppliers(table);   // uses the overload above — re-wraps in FilteredList
             } catch (Exception e) { showError(e.getMessage()); }
         });
     }
@@ -529,9 +630,37 @@ public class ManageInventoryUI {
             orderNoCol, prodNameCol, suppNameCol,
             oDateCol, qtyOrdCol, oStatusCol, delCol);
 
-        loadOrders(table);
+        ObservableList<ORow> masterData = FXCollections.observableArrayList();
+        filteredOrders = new FilteredList<>(masterData, p -> true);
+        table.setItems(filteredOrders);
+        loadOrders(masterData);
 
-        VBox box = new VBox(table);
+        // ── Search bar wired to filteredOrders ──
+        TextField searchField = buildSearchField("🔍  Search by order no, product, supplier or status…");
+        searchField.textProperty().addListener((obs, oldVal, newVal) -> {
+            String lower = newVal == null ? "" : newVal.toLowerCase().trim();
+            filteredOrders.setPredicate(row -> {
+                if (lower.isEmpty()) return true;
+                return row.orderNo.get().toLowerCase().contains(lower)
+                    || row.productName.get().toLowerCase().contains(lower)
+                    || row.supplierName.get().toLowerCase().contains(lower)
+                    || row.orderStatus.get().toLowerCase().contains(lower)
+                    || row.orderDate.get().toLowerCase().contains(lower);
+            });
+        });
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Button resetBtn = new Button("✖");
+        resetBtn.setStyle("-fx-background-color:#c0392b; -fx-text-fill:white; -fx-font-weight:bold;");
+        resetBtn.setOnAction(e -> searchField.clear());
+
+        HBox searchBar = new HBox(10, spacer, searchField, resetBtn);
+        searchBar.setAlignment(Pos.CENTER_RIGHT);
+        searchBar.setPadding(new Insets(8, 0, 8, 0));
+
+        VBox box = new VBox(searchBar, table);
         VBox.setVgrow(table, Priority.ALWAYS);
         box.setUserData(table);
 
@@ -612,9 +741,39 @@ public class ManageInventoryUI {
             billNoCol, orderNoCol, prodNameCol, suppNameCol,
             recByCol, amtCol, qtyRecCol, recDateCol, bStatusCol, delCol);
 
-        loadBills(table);
+        ObservableList<BRow> masterData = FXCollections.observableArrayList();
+        filteredBills = new FilteredList<>(masterData, p -> true);
+        table.setItems(filteredBills);
+        loadBills(masterData);
 
-        VBox box = new VBox(table);
+        // ── Search bar wired to filteredBills ──
+        TextField searchField = buildSearchField("🔍  Search by bill no, order no, product, supplier or status…");
+        searchField.textProperty().addListener((obs, oldVal, newVal) -> {
+            String lower = newVal == null ? "" : newVal.toLowerCase().trim();
+            filteredBills.setPredicate(row -> {
+                if (lower.isEmpty()) return true;
+                return row.billNo.get().toLowerCase().contains(lower)
+                    || row.orderNo.get().toLowerCase().contains(lower)
+                    || row.productName.get().toLowerCase().contains(lower)
+                    || row.supplierName.get().toLowerCase().contains(lower)
+                    || row.receivedBy.get().toLowerCase().contains(lower)
+                    || row.billStatus.get().toLowerCase().contains(lower)
+                    || row.receivedDate.get().toLowerCase().contains(lower);
+            });
+        });
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Button resetBtn = new Button("✖");
+        resetBtn.setStyle("-fx-background-color:#c0392b; -fx-text-fill:white; -fx-font-weight:bold;");
+        resetBtn.setOnAction(e -> searchField.clear());
+
+        HBox searchBar = new HBox(10, spacer, searchField, resetBtn);
+        searchBar.setAlignment(Pos.CENTER_RIGHT);
+        searchBar.setPadding(new Insets(8, 0, 8, 0));
+
+        VBox box = new VBox(searchBar, table);
         VBox.setVgrow(table, Priority.ALWAYS);
         box.setUserData(table);
 
@@ -628,8 +787,8 @@ public class ManageInventoryUI {
     //  LOAD METHODS
     // =====================================================================
 
-    private void loadOrders(TableView<ORow> table) {
-        table.getItems().clear();
+    private void loadOrders(ObservableList<ORow> list) {
+        list.clear();
         String sql =
             "SELECT o.entry_id, o.pid, o.sid, o.order_no, " +
             "       p.product_name, s.name AS supplier_name, " +
@@ -643,7 +802,7 @@ public class ManageInventoryUI {
              Statement st  = con.createStatement();
              ResultSet rs  = st.executeQuery(sql)) {
             while (rs.next()) {
-                table.getItems().add(new ORow(
+                list.add(new ORow(
                         rs.getInt("entry_id"),
                         rs.getString("pid"),
                         rs.getInt("sid"),
@@ -658,8 +817,20 @@ public class ManageInventoryUI {
         } catch (Exception e) { showError(e.getMessage()); }
     }
 
-    private void loadBills(TableView<BRow> table) {
-        table.getItems().clear();
+    /**
+     * Live-reload overload used by the bill-delete handler.
+     * Replaces the TableView's items with a fresh FilteredList so
+     * the existing search predicate is preserved via filteredOrders.
+     */
+    private void loadOrders(TableView<ORow> table) {
+        ObservableList<ORow> masterData = FXCollections.observableArrayList();
+        filteredOrders = new FilteredList<>(masterData, p -> true);
+        loadOrders(masterData);
+        table.setItems(filteredOrders);
+    }
+
+    private void loadBills(ObservableList<BRow> list) {
+        list.clear();
         String sql =
             "SELECT b.entry_id, b.pid, b.bill_id, b.bill_no, " +
             "       o.order_no, p.product_name, s.name AS supplier_name, " +
@@ -675,7 +846,7 @@ public class ManageInventoryUI {
              Statement st  = con.createStatement();
              ResultSet rs  = st.executeQuery(sql)) {
             while (rs.next()) {
-                table.getItems().add(new BRow(
+                list.add(new BRow(
                         rs.getInt("entry_id"),
                         rs.getString("pid"),
                         rs.getInt("bill_id"),
@@ -691,6 +862,18 @@ public class ManageInventoryUI {
                 ));
             }
         } catch (Exception e) { showError(e.getMessage()); }
+    }
+
+    /**
+     * Live-reload overload used by the bill-delete handler.
+     * Replaces the TableView's items with a fresh FilteredList so
+     * the existing search predicate is preserved via filteredBills.
+     */
+    private void loadBills(TableView<BRow> table) {
+        ObservableList<BRow> masterData = FXCollections.observableArrayList();
+        filteredBills = new FilteredList<>(masterData, p -> true);
+        loadBills(masterData);
+        table.setItems(filteredBills);
     }
 
     // =====================================================================
@@ -847,6 +1030,23 @@ public class ManageInventoryUI {
 
     private void showError(String msg) {
         new Alert(Alert.AlertType.ERROR, msg).show();
+    }
+
+    private String generateNextProductId() {
+        String sql = "SELECT pid FROM product ORDER BY pid DESC LIMIT 1";
+        try (Connection con = DBConnection.getConnection();
+             Statement st = con.createStatement();
+             ResultSet rs = st.executeQuery(sql)) {
+            if (rs.next()) {
+                String lastId = rs.getString("pid"); // e.g., P0005
+                int num = Integer.parseInt(lastId.substring(1));
+                num++;
+                return String.format("P%04d", num);
+            }
+        } catch (Exception e) {
+            showError(e.getMessage());
+        }
+        return "P0001";
     }
 
     public Scene getScene() {
