@@ -1,3 +1,4 @@
+
 package ui;
 
 import com.mycompany.inventory.Inventory;
